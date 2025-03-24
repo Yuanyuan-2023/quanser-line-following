@@ -85,12 +85,12 @@ def evaluate_regression(model, dataloader, device, tolerance=0.05):
     y_true = np.array(y_true)
     y_pred = np.array(y_pred)
 
-    mse = mean_squared_error(y_true, y_pred)
-    mae = mean_absolute_error(y_true, y_pred)
-    r2 = r2_score(y_true, y_pred)
+    # mse = mean_squared_error(y_true, y_pred)
+    # mae = mean_absolute_error(y_true, y_pred)
+    # r2 = r2_score(y_true, y_pred)
     acc = np.mean(np.abs(y_true - y_pred) <= tolerance)
 
-    return acc, mse, mae, r2
+    return acc
 
 
 def train(train_loader, valid_loader, device="cpu", train_epoch=10, save_dir="ckpt"):
@@ -116,16 +116,27 @@ def train(train_loader, valid_loader, device="cpu", train_epoch=10, save_dir="ck
 
             total_loss += loss.item()
 
-        acc, mse, mae, r2 = evaluate_regression(model, valid_loader, device)
+        acc = evaluate_regression(model, valid_loader, device)
 
-        print(f"Epoch {epoch+1}/{train_epoch} Train Loss: {total_loss / len(train_loader):.6f}")
-        print(f"Val MSE: {mse:.6f}, MAE: {mae:.6f}, R²: {r2:.4f}, Accuracy(±0.05): {acc*100:.2f}%")
+        print(f"Epoch {epoch+1}/{train_epoch} Train Loss: {total_loss / len(train_loader):.6f}Accuracy(±0.05): {acc*100:.2f}%")
 
-        # ✅ 保存最优模型
         if acc > best_acc:
             best_acc = acc
             model_path = os.path.join(save_dir, f"{acc:.4f}_line_follower_rnn.pth")
             torch.save(model.state_dict(), model_path)
+
+
+def image_preprocessor(image, device):
+    # image preprocessing
+    if not isinstance(image, Image.Image):
+        image = Image.fromarray(image)
+    image = image.convert("L")
+
+    transform = transforms.Compose([
+        transforms.Resize((64, 64)),
+        transforms.ToTensor(),
+    ])
+    return transform(image).to(device)
 
 
 def main():

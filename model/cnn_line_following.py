@@ -62,13 +62,6 @@ class QBotDataset(Dataset):
 
         return img, label
 
-# # ✅ 加载数据
-# dataset = QBotDataset(df, transform=transform)
-
-# # 🚨 过滤掉 `None` 样本，防止 DataLoader 报错
-# dataset = [data for data in dataset if data is not None]
-# dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
-
 # ✅ 定义 CNN 模型
 class QBotCNN(nn.Module):
     def __init__(self):
@@ -106,43 +99,13 @@ class QBotCNN(nn.Module):
         
         return x
 
-# # ✅ 初始化模型、损失函数和优化器
-# device = torch.device("cpu")  # 🚨 强制使用 CPU
-# print(f"🚀 训练设备: {device}")
-
-# model = QBotCNN().to(device)
-# criterion = nn.MSELoss()
-# optimizer = optim.Adam(model.parameters(), lr=0.00005)  # 🚨 降低学习率，防止梯度爆炸
-
-# # ✅ 训练模型
-# print("🚀 开始训练...")
-# for epoch in range(10):
-#     total_loss = 0
-#     batch_count = 0
-
-#     for batch in dataloader:
-#         images, labels = batch
-#         images = images.to(device).float()
-#         labels = labels.to(device).float()
-
-#         optimizer.zero_grad()
-#         outputs = model(images).float()
-
-#         loss = criterion(outputs.squeeze(), labels)
-
-#         # 🚨 防止 Loss 变 NaN
-#         if torch.isnan(loss):
-#             print("❌ 发现 `NaN`，终止训练！")
-#             exit()
-
-#         loss.backward()
-#         optimizer.step()
-
-#         total_loss += loss.item()
-#         batch_count += 1
-
-#     print(f"Epoch {epoch+1}/10 - Loss: {total_loss / batch_count:.6f}")
-
-# # ✅ 保存 PyTorch 模型
-# torch.save(model.state_dict(), "C:/Users/1212/AI/qbot_line_follower_cnn.pth")
-# print("✅ 模型训练完成，已保存为 qbot_line_follower_cnn.pth")
+def image_preprocessor(image, device="cpu"):
+    # 图像预处理  
+    transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize((160, 320)),
+        transforms.Grayscale(num_output_channels=1),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5])
+    ])
+    return transform(image).unsqueeze(0).to(device)
