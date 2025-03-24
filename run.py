@@ -19,6 +19,7 @@ from qbot_platform_functions import QBPVision,QBPRanging, LineFollowingMetrics
 from qlabs_setup import setup
 from model import *
 from motion import get_motion_queque
+import random
 
 # Section A - Setup
 metrics = LineFollowingMetrics()
@@ -61,6 +62,8 @@ cnn.eval()
 # --------------- 3. 加载 CNN分类模型 ---------------
 TURNSPD_LIST = []
 FORSPD_LIST = []
+CLASS_LIST = []
+SMOOTH_NUM = 3 
 cnn_classify_path = "ckpt/classify_road_5_cnn.pth"
 cnn_classify = CNNClassifyRoad().to(device)
 cnn_classify.load_state_dict(torch.load(cnn_classify_path, map_location=device))
@@ -173,17 +176,19 @@ try:
                 
                 # CLassify "十字", "T型",
                 elif road_class in ["十字", "T型"]:
-                    print(f"转弯减速")
-                    if front > 0.5:
-                        FORSPD_LIST, TURNSPD_LIST = get_motion_queque("innerTurnRight")
+                    if len(CLASS_LIST) < SMOOTH_NUM:
+                        CLASS_LIST.append(road_class)
                     else:
-                        FORSPD_LIST, TURNSPD_LIST = get_motion_queque("outerTurnRight")
-                    
-                    FORSPD_LIST.pop(0)
-                    TURNSPD_LIST.pop(0)
+                        if front > 0.5:
+                            print(f"转内弯")
+                            FORSPD_LIST, TURNSPD_LIST = get_motion_queque("innerTurnRight") if random.random() < 0.5 else get_motion_queque("innerTurnLeft")
+                        else:
+                            print(f"转外弯")
+                            FORSPD_LIST, TURNSPD_LIST = get_motion_queque("outerTurnRight")
+                        CLASS_LIST = []
                 
                 # 若距离小于阈值，则右转后恢复循线
-                elif front < 0.5:
+                if front < 0.5:
                     print("T-junction detected: turning right")
                     forSpd = 0.05
                     turnSpd = -0.5
