@@ -58,6 +58,8 @@ cnn.load_state_dict(torch.load(cnn_path, map_location=device))
 cnn.eval()
 
 # --------------- 3. 加载 CNN分类模型 ---------------
+STOP_DURATION = 1
+stop_time = None
 cnn_classify_path = "ckpt/classify_road_5_cnn.pth"
 cnn_classify = CNNClassifyRoad().to(device)
 cnn_classify.load_state_dict(torch.load(cnn_classify_path, map_location=device))
@@ -149,6 +151,13 @@ try:
                     if road_class in ["十字", "T型"]:
                         print(f"转弯减速")
                         forSpd = 0
+                        stop_time = time.time()
+                    elif stop_time:
+                        if time.time() - stop_time < STOP_DURATION:
+                            forSpd = 0
+                        else:
+                            stop_time = None
+                            forSpd = 0.1
                     else:
                         forSpd = 0.1
                     turnSpd = np.clip(predicted_offset * -0.5, -1, 1)
