@@ -18,6 +18,7 @@ from pal.products.qbot_platform import QBotPlatformDriver, Keyboard, QBotPlatfor
 from qbot_platform_functions import QBPVision, LineFollowingMetrics
 from qlabs_setup import setup
 from train_rnn import CNNRNNLineFollower
+
 from PIL import Image
 
 # Section A - Setup
