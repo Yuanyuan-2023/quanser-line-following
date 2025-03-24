@@ -14,8 +14,8 @@ from PIL import Image
 from collections import deque
 import matplotlib
 matplotlib.use('TkAgg')  # 强制使用 Tk 后端（比 Qt 更稳定）
-from pal.products.qbot_platform import QBotPlatformDriver, Keyboard, QBotPlatformCSICamera
-from qbot_platform_functions import QBPVision, LineFollowingMetrics
+from pal.products.qbot_platform import QBotPlatformDriver, Keyboard, QBotPlatformCSICamera, QBotPlatformLidar
+from qbot_platform_functions import QBPVision,QBPRanging, LineFollowingMetrics
 from qlabs_setup import setup
 from model import *
 
@@ -72,9 +72,10 @@ prev_k7 = False
 try:
     myQBot = QBotPlatformDriver(mode=1, ip=ipDriver)
     downCam = QBotPlatformCSICamera(frameRate=frameRate, exposure=39.0, gain=17.0)
+    lidar = QBotPlatformLidar()
     keyboard = Keyboard()
     vision = QBPVision()
-
+    ranging = QBPRanging()
     startTime = time.time()
     time.sleep(0.5)
 
@@ -106,7 +107,17 @@ try:
         if newHIL:
             timeHIL = time.time()
             newDownCam = downCam.read()
-
+            # Lidar reading (maximum 3 attempts)
+            for i in range(3):
+                newLidar = lidar.read()
+                if newLidar and lidar.distances is not None and len(lidar.distances) > 0:
+                    break
+                time.sleep(0.05)  # Give it a moment to "catch its breath"
+            else:
+                print(" Invalid lidar frame, skipping this frame")
+                continue
+            rangesAdj, anglesAdj = ranging.adjust_and_subsample(lidar.distances, 
+                                                         lidar.angles, 1260, 3)
             if newDownCam:
                 counterDown += 1
 
@@ -161,7 +172,35 @@ try:
                     else:
                         forSpd = 0.1
                     turnSpd = np.clip(predicted_offset * -0.5, -1, 1)
+                
+                    # Use front window (±2°) calculated after angle correction of rangesAdj and anglesAdj）
+                    front_mask = np.logical_and(anglesAdj > -0.035, 
+                                    anglesAdj < 0.035)  # about ±2°
+                    front_window = rangesAdj[front_mask]
+                    # NaN protection & empty value protection
+                    if front_window.size == 0 or np.any(np.isnan(front_window)):
+                        print("Radar window data is empty or contains NaN, skipping this frame")
+                        continue
 
+                # Calculate average distance
+                    front = np.mean(front_window)
+                    print(f"Average distance detected directly ahead:{front:.3f}m")
+
+                 # 若距离小于阈值，则右转后恢复循线
+                    if front < 0.5:
+                        print("T-junction detected: turning right")
+                        forSpd = 0.05
+                        turnSpd = -0.5
+
+                 # Execute right turn for a period (non-blocking implementation)
+                        turn_end_time = time.time() + 0.8
+                        while time.time() < turn_end_time:
+                            myQBot.read_write_std(timestamp=elapsed_time(), arm=arm,
+                                  commands=np.array([forSpd, turnSpd]))
+                        print("Turn completed, returning to line-following mode")
+                    else:
+                        forSpd = 0.15
+                        turnSpd = np.clip(predicted_offset * -0.5, -1, 1)
                 metrics.add_error(predicted_offset * 160)
                 commands = np.array([forSpd, turnSpd], dtype=np.float64)
                 print(f"[自动模式] 控制指令: {commands}")
