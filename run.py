@@ -18,6 +18,7 @@ from pal.products.qbot_platform import QBotPlatformDriver, Keyboard, QBotPlatfor
 from qbot_platform_functions import QBPVision,QBPRanging, LineFollowingMetrics
 from qlabs_setup import setup
 from model import *
+from motion import get_motion_queque
 
 # Section A - Setup
 metrics = LineFollowingMetrics()
@@ -58,8 +59,8 @@ cnn.load_state_dict(torch.load(cnn_path, map_location=device))
 cnn.eval()
 
 # --------------- 3. 加载 CNN分类模型 ---------------
-STOP_DURATION = 1
-stop_time = None
+TURNSPD_LIST = []
+FORSPD_LIST = []
 cnn_classify_path = "ckpt/classify_road_5_cnn.pth"
 cnn_classify = CNNClassifyRoad().to(device)
 cnn_classify.load_state_dict(torch.load(cnn_classify_path, map_location=device))
@@ -128,14 +129,10 @@ try:
 
                 debug_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
                 
-                image_classify = load_classify_data(binary, device)
                 image_cnn = load_cnn_data(binary, device)
                 image_rnn = load_rnn_data(binary, device)
                 
-                pred_classify_cnn = torch.argmax(cnn_classify(image_classify)[0]).item()
-                road_class = CLASS_NAME[pred_classify_cnn]
                 pred_cnn = cnn(image_cnn).item()
-
                 if len(frame_buffer) < SEQ_LEN:
                     for _ in range(SEQ_LEN - len(frame_buffer)):
                         frame_buffer.append(image_rnn.clone())
@@ -145,62 +142,66 @@ try:
                 pred_rnn = rnn(seq_tensor).item()
 
                 print(f"预测偏移 CNN: {pred_cnn:.4f}, RNN: {pred_rnn:.4f}")
-                print(f"预测路口 {road_class}")
 
                 cv2.putText(debug_image, f"Offset: {pred_rnn:.3f}", (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
                 cv2.imshow("Line Following", debug_image)
                 cv2.waitKey(1)
 
+                image_classify = load_classify_data(binary, device)
+                pred_classify_cnn = torch.argmax(cnn_classify(image_classify)[0]).item()
+                road_class = CLASS_NAME[pred_classify_cnn]
+                print(f"预测路口 {road_class}")
+
+                # Use front window (±2°) calculated after angle correction of rangesAdj and anglesAdj）
+                front_mask = np.logical_and(anglesAdj > -0.035, 
+                                anglesAdj < 0.035)  # about ±2°
+                front_window = rangesAdj[front_mask]
+                # NaN protection & empty value protection
+                if front_window.size == 0 or np.any(np.isnan(front_window)):
+                    print("Radar window data is empty or contains NaN, skipping this frame")
+                    continue
+                # Calculate average distance
+                front = np.mean(front_window)
+                print(f"Average distance detected directly ahead:{front:.3f}m")
+
                 predicted_offset = (pred_rnn + pred_cnn) / 2
-                if predicted_offset is None or np.isnan(predicted_offset) or abs(predicted_offset) > 0.9:
+                if len(TURNSPD_LIST) == len(FORSPD_LIST) != 0:
+                    forSpd, turnSpd = FORSPD_LIST[0], TURNSPD_LIST[0]
+                    FORSPD_LIST.pop(0)
+                    TURNSPD_LIST.pop(0)
+                
+                # CLassify "十字", "T型",
+                elif road_class in ["十字", "T型"]:
+                    print(f"转弯减速")
+                    if front > 0.5:
+                        FORSPD_LIST, TURNSPD_LIST = get_motion_queque("innerTurnRight")
+                    else:
+                        FORSPD_LIST, TURNSPD_LIST = get_motion_queque("outerTurnRight")
+                    
+                    FORSPD_LIST.pop(0)
+                    TURNSPD_LIST.pop(0)
+                
+                # 若距离小于阈值，则右转后恢复循线
+                elif front < 0.5:
+                    print("T-junction detected: turning right")
+                    forSpd = 0.05
+                    turnSpd = -0.5
+                 # Execute right turn for a period (non-blocking implementation)
+                    turn_end_time = time.time() + 0.8
+                    while time.time() < turn_end_time:
+                        myQBot.read_write_std(timestamp=elapsed_time(), arm=arm,
+                                commands=np.array([forSpd, turnSpd]))
+                    print("Turn completed, returning to line-following mode")
+                
+                elif predicted_offset is None or np.isnan(predicted_offset) or abs(predicted_offset) > 0.9:
                     print("⚠️ 偏移过大，后退调整")
                     forSpd = -0.1
                     turnSpd = 0.2 * (-1 if counterDown % 2 == 0 else 1)
                 else:
-                    # CLassify "十字", "T型",
-                    if road_class in ["十字", "T型"]:
-                        print(f"转弯减速")
-                        forSpd = 0
-                        stop_time = time.time()
-                    elif stop_time:
-                        if time.time() - stop_time < STOP_DURATION:
-                            forSpd = 0
-                        else:
-                            stop_time = None
-                            forSpd = 0.1
-                    else:
-                        forSpd = 0.1
+                    forSpd = 0.15
                     turnSpd = np.clip(predicted_offset * -0.5, -1, 1)
-                
-                    # Use front window (±2°) calculated after angle correction of rangesAdj and anglesAdj）
-                    front_mask = np.logical_and(anglesAdj > -0.035, 
-                                    anglesAdj < 0.035)  # about ±2°
-                    front_window = rangesAdj[front_mask]
-                    # NaN protection & empty value protection
-                    if front_window.size == 0 or np.any(np.isnan(front_window)):
-                        print("Radar window data is empty or contains NaN, skipping this frame")
-                        continue
-
-                # Calculate average distance
-                    front = np.mean(front_window)
-                    print(f"Average distance detected directly ahead:{front:.3f}m")
-
-                 # 若距离小于阈值，则右转后恢复循线
-                    if front < 0.5:
-                        print("T-junction detected: turning right")
-                        forSpd = 0.05
-                        turnSpd = -0.5
-
-                 # Execute right turn for a period (non-blocking implementation)
-                        turn_end_time = time.time() + 0.8
-                        while time.time() < turn_end_time:
-                            myQBot.read_write_std(timestamp=elapsed_time(), arm=arm,
-                                  commands=np.array([forSpd, turnSpd]))
-                        print("Turn completed, returning to line-following mode")
-                    else:
-                        forSpd = 0.15
-                        turnSpd = np.clip(predicted_offset * -0.5, -1, 1)
+    
                 metrics.add_error(predicted_offset * 160)
                 commands = np.array([forSpd, turnSpd], dtype=np.float64)
                 print(f"[自动模式] 控制指令: {commands}")
