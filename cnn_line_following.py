@@ -97,18 +97,19 @@ try:
             else:
                 print("❌ 摄像头图像读取失败")
                 continue           
-            # 雷达读取（最多尝试 3 次）
+            # Lidar reading (maximum 3 attempts)
             for i in range(3):
                 newLidar = lidar.read()
                 if newLidar and lidar.distances is not None and len(lidar.distances) > 0:
                     break
-                time.sleep(0.05)  # 给点时间“喘口气”
+                time.sleep(0.05)  # Give it a moment to "catch its breath"
             else:
-                print("⚠️ 雷达帧无效，跳过该帧")
+                print(" Invalid lidar frame, skipping this frame")
                 continue
 
             
-            rangesAdj, anglesAdj = ranging.adjust_and_subsample(lidar.distances, lidar.angles, 1260, 3)
+            rangesAdj, anglesAdj = ranging.adjust_and_subsample(lidar.distances, 
+                                                         lidar.angles, 1260, 3)
 
             counterDown += 1
             undistorted = vision.df_camera_undistort(downCam.imageData)
@@ -125,32 +126,32 @@ try:
                 forSpd = -0.1
                 turnSpd = 0.2 * (-1 if counterDown % 2 == 0 else 1)
             else:
-                # 使用角度校正后的 rangesAdj 和 anglesAdj 计算前方窗口（±2°）
-                front_mask = np.logical_and(anglesAdj > -0.035, anglesAdj < 0.035)  # 约 ±2°
+                # Use front window (±2°) calculated after angle correction of rangesAdj and anglesAdj）
+                front_mask = np.logical_and(anglesAdj > -0.035, 
+                                    anglesAdj < 0.035)  # about ±2°
                 front_window = rangesAdj[front_mask]
 
-# NaN 保护 & 空值保护
+# NaN protection & empty value protection
                 if front_window.size == 0 or np.any(np.isnan(front_window)):
-                    print("⚠️ 雷达窗口数据为空或包含 NaN，跳过本帧")
+                    print("Radar window data is empty or contains NaN, skipping this frame")
                     continue
 
-# 计算平均距离
+                # Calculate average distance
                 front = np.mean(front_window)
-                print(f"🤖 当前检测正前方平均距离: {front:.3f} m")
+                print(f"Average distance detected directly ahead:{front:.3f}m")
 
-# 若距离小于阈值，则右转后恢复循线
+                 # 若距离小于阈值，则右转后恢复循线
                 if front < 0.5:
-                    print("🚧 T字路口检测：执行右转")
+                    print("T-junction detected: turning right")
                     forSpd = 0.05
                     turnSpd = -0.5
 
-    # 执行右转一段时间（非阻塞方式实现）
+                 # Execute right turn for a period (non-blocking implementation)
                     turn_end_time = time.time() + 0.8
                     while time.time() < turn_end_time:
                         myQBot.read_write_std(timestamp=elapsed_time(), arm=arm,
                               commands=np.array([forSpd, turnSpd]))
-                    print("✅ 右转完成，恢复循线模式")
-
+                    print("Turn completed, returning to line-following mode")
                 else:
                     forSpd = 0.15
                     turnSpd = np.clip(predicted_offset * -0.5, -1, 1)
