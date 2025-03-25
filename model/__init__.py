@@ -1,6 +1,9 @@
 from .cnn_classify_road import QBotCNN as CNNClassifyRoad
 from .cnn_classify_road import image_preprocessor as load_classify_data
 
+from .cnn_3_cls import ImageClassifier3Class as CNNClassifyRoad2
+from .cnn_3_cls import image_preprocessor as load_classify_data2
+
 from .cnn_line_following import QBotCNN as CNNLineFollower
 from .cnn_line_following import image_preprocessor as load_cnn_data
 

@@ -129,9 +129,9 @@ def image_preprocessor(image, device):
     # image preprocessing
     if not isinstance(image, Image.Image):
         image = Image.fromarray(image)
-    image = image.convert("L")
 
     transform = transforms.Compose([
+        transforms.Grayscale(),                 
         transforms.Resize((64, 64)),
         transforms.ToTensor(),
     ])
