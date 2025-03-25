@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+# from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 import os
 from PIL import Image
