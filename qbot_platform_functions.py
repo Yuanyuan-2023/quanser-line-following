@@ -175,7 +175,7 @@ class QBPVision():
                 turnSpd = kP * angle + kD * derivative.send(angle)
                 forSpd = 0.35 * np.cos(angle)
                 #-------------------------------------------------------------#
-                offset = integrator.send(25*turnSpd)
+                offset = integrator.send(turnSpd)
             
 
     def save_data_example(self, image, output_dir, data_counter, label=None):

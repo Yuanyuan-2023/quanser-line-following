@@ -4,6 +4,7 @@ import pandas as pd
 def get_motion_queque(motion):
     outer_path = "motion/outerClockwise.csv"
     inner_path = "motion/innerClockwise.csv"
+    turn_path = "motion/turnLeft.csv"
     
     if motion == "outerTurnRight":
         df = pd.read_csv(outer_path)
@@ -14,6 +15,12 @@ def get_motion_queque(motion):
         df = pd.read_csv(inner_path)
     elif motion == "innerTurnRight":
         df = pd.read_csv(inner_path)
+        df["Turn Speed"] = -df["Turn Speed"]
+    elif motion == "turnLeft":
+        df = pd.read_csv(turn_path)
+        df["Turn Speed"] = df["Turn Speed"]
+    elif motion == "turnRight":
+        df = pd.read_csv(turn_path)
         df["Turn Speed"] = -df["Turn Speed"]
 
     fd_list = list(df["Forward Speed"])
@@ -32,6 +39,9 @@ def main():
     print(fd_list[:3], turn_list[:3])
 
     fd_list, turn_list = get_motion_queque("innerTurnLeft")
+    print(fd_list[:3], turn_list[:3])
+
+    fd_list, turn_list = get_motion_queque("turnRight")
     print(fd_list[:3], turn_list[:3])
 
 

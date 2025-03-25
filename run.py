@@ -65,12 +65,19 @@ cnn.eval()
 # cnn2.eval()
 
 # --------------- 3. 加载 CNN分类模型 ---------------
+SMOOTH_NUM = 5
+BACK_NUM = 20
+FDSPD_LIST = []
 TURNSPD_LIST = []
+smooth_idx = 0
+back_idx = 0
+last_turn_time = 0
+cold_time = 180
 cnn_classify_path = "ckpt/classify_road_5_cnn.pth"
 cnn_classify = CNNClassifyRoad().to(device)
 cnn_classify.load_state_dict(torch.load(cnn_classify_path, map_location=device))
 cnn_classify.eval()
-CLASS_NAME_5 = ["1", "TURN", "CROSS", "T", "st"]
+CLASS_NAME_5 = ["Straight", "Turn","Cross", "T-shape","SmallBend"]
 
 # Road classifier (3-class)
 cnn_classify_path2 = "ckpt/0.9846_cls_cnn.pth"
@@ -89,6 +96,8 @@ try:
     keyboard = Keyboard()
     vision = QBPVision()
     ranging = QBPRanging()
+    line2SpdMap = vision.line_to_speed_map(sampleRate=sampleRate, saturation=75)
+    next(line2SpdMap)
     startTime = time.time()
     time.sleep(0.5)
 
@@ -110,6 +119,7 @@ try:
             lidar_get = 0
             time.sleep(0.2)
         prev_k7 = k7_pressed
+        # print(f"pre k7 :{prev_k7}, current k7: {k7_pressed}")
 
         if not lineFollow:
             commands = np.array([keyboardComand[0], keyboardComand[1]], dtype=np.float64)
@@ -117,7 +127,7 @@ try:
             myQBot.read_write_std(timestamp=elapsed_time(), arm=arm, commands=commands)
             continue
 
-        newHIL = myQBot.read_write_std(timestamp=elapsed_time(), arm=arm, commands=commands)
+        newHIL = myQBot.read_write_std(timestamp=elapsed_time(), arm=1, commands=commands)
         if newHIL:
             timeHIL = time.time()
             newDownCam = downCam.read()
@@ -142,11 +152,17 @@ try:
                 binary = vision.subselect_and_threshold(image=gray_sm, rowStart=50, rowEnd=100,
                                                         minThreshold=180, maxThreshold=255)
 
-                debug_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+                # Blob Detection via Connected Component Labeling
+                col, row, area = vision.image_find_objects(image=binary, connectivity=8, minArea=500, maxArea=4000)
+
+                # Section D.2 - Speed command from blob information
+                forSpd_2, turnSpd_2 = line2SpdMap.send((col, 0.7, 100))  # kP=0.2, kD=0 可调整
+                # forSpd *=0.2
+                turnSpd_2 *=0.03
                 
                 image_cnn = load_cnn_data(binary, device)
                 # image_cnn2 = load_cnn_data2(binary, device)
-                # image_rnn = load_rnn_data(binary, device)
+                image_rnn = load_rnn_data(binary, device)
                 
                 pred_cnn = cnn(image_cnn).item()
                 # pred_cnn2 = cnn2(image_cnn2).item()
@@ -161,7 +177,6 @@ try:
                 predicted_offset = pred_cnn
                 
                 # print(f"预测偏移: {predicted_offset:.4f} CNN: {pred_cnn:.4f}, CNN2:{pred_cnn2:.4f} RNN: {pred_rnn:.4f}")
-# 
 
                 image_classify = load_classify_data(binary, device)
                 pred_classify_cnn = torch.argmax(cnn_classify(image_classify)[0]).item()
@@ -171,10 +186,11 @@ try:
                 pred_classify_cnn2 = torch.argmax(cnn_classify2(image_classify2)[0]).item()
                 road_class_3 = CLASS_NAME_3[pred_classify_cnn2]
 
-                print(f"路口 {road_class_5}, 线段 {road_class_3}")
+                print(f"路口 {road_class_5}, 线段 {road_class_3} col {col}")
 
-                cv2.putText(debug_image, f"Offset: {predicted_offset:.3f}, {road_class_5}, {road_class_3} ", (10, 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
+                debug_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+                cv2.putText(debug_image, f"Col: {col} Offset: {predicted_offset:.3f}, {road_class_5}, {road_class_3} ", (10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
                 cv2.imshow("Line Following", debug_image)
                 cv2.waitKey(1)
 
@@ -188,12 +204,16 @@ try:
                     # 左右检测区间：±0.1 弧度 ≈ ±5~6°
                     side_angle_margin = 0.1
 
-                    # 左侧窗口（大约 π/2 左右）
-                    left_mask = (anglesAdj > (np.pi / 2 - side_angle_margin)) & (anglesAdj < (np.pi / 2 + side_angle_margin))
+                    # left_window（about π/2 ）
+                    left_mask = (
+                        (anglesAdj > (np.pi / 2 - side_angle_margin)) & 
+                        (anglesAdj < (np.pi / 2 + side_angle_margin)))
                     left_window = rangesAdj[left_mask]
 
-                    # 右侧窗口（大约 -π/2 左右）
-                    right_mask = (anglesAdj > (-np.pi / 2 - side_angle_margin)) & (anglesAdj < (-np.pi / 2 + side_angle_margin))
+                    # right_window（about -π/2）
+                    right_mask = (
+                        (anglesAdj > (-np.pi / 2 - side_angle_margin)) & 
+                        (anglesAdj < (-np.pi / 2 + side_angle_margin)))
                     right_window = rangesAdj[right_mask]
                     # NaN protection & empty value protection
                     if front_window.size == 0 or np.any(np.isnan(front_window)):
@@ -204,7 +224,7 @@ try:
                     np.any(np.isnan(left_window)) or np.any(np.isnan(right_window)):
                         print(" 左右距离窗口无效，跳过本帧")
                     
-                    elif not lidar_get:
+                    else:
                         # Calculate average distance
                         front = np.mean(front_window)
                         print(f"Average distance detected directly ahead:{front:.3f}m")
@@ -212,14 +232,15 @@ try:
                         left_dist = np.mean(left_window)
                         right_dist = np.mean(right_window)
                         print(f" 左侧: {left_dist:.2f} m | 右侧: {right_dist:.2f} m")
-                        if left_dist < 1 or right_dist < 1:
-                            lidar_get = 1
-                            # outer circle
-                            print(f"outer circle, {right_dist:.2f},{left_dist:.2f}")
-                        else:
-                            lidar_get = 2
-                            # inner circle
-                            print(f"inner circle, {right_dist:.2f},{left_dist:.2f}")
+                        if not lidar_get:
+                            if left_dist < 1 or right_dist < 1:
+                                lidar_get = 1
+                                # outer circle
+                                print(f"outer circle, {right_dist:.2f},{left_dist:.2f}")
+                            else:
+                                lidar_get = 2
+                                # inner circle
+                                print(f"inner circle, {right_dist:.2f},{left_dist:.2f}")
                     # predicted_offset = (pred_rnn + pred_cnn) / 2
 
                     # # Step 角落检测逻辑：前、左、右距离都小于阈值，认为卡住
@@ -261,16 +282,77 @@ try:
                     #                 commands=np.array([forSpd, turnSpd]))
                     #     print("Turn completed, returning to line-following mode")
                     #--------------------------------------------------------
-    
-                # if TURNSPD_LIST:
-                #     forSpd = 0
-                #     turnSpd = TURNSPD_LIST[0]
-                #     TURNSPD_LIST.pop(0)
+                
+                if lidar_get==2 and col is not None:
+                    metrics.add_error(col * 160)
+                    commands = np.array([forSpd_2, turnSpd_2], dtype=np.float64)
+                    print(f"[自动模式] PID 计算速度: {commands}")
+                    continue
+                
+                if TURNSPD_LIST:
+                    if back_idx < BACK_NUM:
+                        forSpd = -0.02
+                        turnSpd = 0
+                        back_idx +=1
+                    else:
+                        forSpd = 0.01
+                        turnSpd = TURNSPD_LIST[0]
+                        TURNSPD_LIST.pop(0)
+                # 空白后退
+                elif road_class_3 in ["B"]:
+                    forSpd = -0.02
+                    turnSpd = 0
+
                 # CLassify "十字", "T型",
-                # if road_class_5 in ["十字", "T型"] and road_class_3 in ["Multiple Lines"]:
-                #     print(f"转外弯")
-                    # forSpd = 0.05
-                    # turnSpd = -0.5
+                elif road_class_5 in ["T-shape", "Cross"] and road_class_3 in ["M"] and time.time() - last_turn_time > cold_time and lidar_get==2:
+                    if smooth_idx < SMOOTH_NUM:
+                        smooth_idx += 1
+                        forSpd = 0.01  # 正常前进速度
+                        turnSpd = np.clip(predicted_offset * -0.5, -1, 1)  # 限制转向速度范围
+                    elif lidar_get and left_dist > right_dist:
+                        print(f"转左弯\n\n")
+                        FDSPD_LIST, TURNSPD_LIST = get_motion_queque("turnLeft")
+                        forSpd = -0.02
+                        turnSpd = 0
+                        last_turn_time = time.time()
+                    else:
+                        print(f"转右弯\n\n")
+                        FDSPD_LIST, TURNSPD_LIST = get_motion_queque("turnRight")
+                        forSpd = -0.02
+                        turnSpd = 0
+                        last_turn_time = time.time()
+                elif road_class_5 in ["T-shape", "Cross"] and road_class_3 in ["M"] and lidar_flag:
+                    if front < 1:
+                        if lidar_get and left_dist > right_dist:
+                            print(f"转左弯\n\n")
+                            FDSPD_LIST, TURNSPD_LIST = get_motion_queque("turnLeft")
+                            forSpd = -0.1
+                            turnSpd = 0
+                            last_turn_time = time.time()
+                        else:
+                            print(f"转右弯\n\n")
+                            FDSPD_LIST, TURNSPD_LIST = get_motion_queque("turnRight")
+                            forSpd = -0.1
+                            turnSpd = 0
+                            last_turn_time = time.time()
+                else:
+                    smooth_idx = 0
+                    back_idx = 0
+                    if lidar_get:
+                        if lidar_get == 1:
+                            # outer circle
+                            print(f"outer circle, {right_dist:.2f},{left_dist:.2f}")
+                            forSpd = 0.1  # 正常前进速度
+                            turnSpd = np.clip(predicted_offset * -0.5, -1, 1)  # 限制转向速度范围
+                        else:
+                            # inner circle
+                            print(f"inner circle, {right_dist:.2f},{left_dist:.2f}")
+                            forSpd = 0.02  # 正常前进速度
+                            turnSpd = np.clip(predicted_offset * -0.5, -1, 1)  # 限制转向速度范围
+                    else:
+                        print(f"no circle")
+                        forSpd = 0.01  # 正常前进速度
+                        turnSpd = np.clip(predicted_offset * -1, -1, 1)  # 限制转向速度范围
                 
                 # if predicted_offset is None or np.isnan(predicted_offset) or abs(predicted_offset) > 0.9:
                 #    print("⚠️ 偏移过大，后退调整")
@@ -297,28 +379,12 @@ try:
                 #         turnSpd = np.clip(turnSpd, -1, 1)
 
 
-                # 🚀 进入“缓慢后退模式”
-                if predicted_offset is None or abs(predicted_offset) > 0.9:
-                    print("⚠️ 机器人偏离或找不到线，后退中...")
-                    forSpd = -0.1  # **缓慢后退**
-                    turnSpd = 0.2 * (-1 if counterDown % 2 == 0 else 1)  # **左右小幅调整**
-                else:
-                    # 🚀 正常模式
-                    if lidar_get:
-                        if lidar_get == 1:
-                            # outer circle
-                            print(f"outer circle, {right_dist:.2f},{left_dist:.2f}")
-                            forSpd = 0.1  # 正常前进速度
-                            turnSpd = np.clip(predicted_offset * -0.5, -1, 1)  # 限制转向速度范围
-                        else:
-                            # inner circle
-                            print(f"inner circle, {right_dist:.2f},{left_dist:.2f}")
-                            forSpd = 0.01  # 正常前进速度
-                            turnSpd = np.clip(predicted_offset * -1, -1, 1)  # 限制转向速度范围
-                    else:
-                        print(f"no circle")
-                        forSpd = 0.01  # 正常前进速度
-                        turnSpd = np.clip(predicted_offset * -1, -1, 1)  # 限制转向速度范围
+                # # 🚀 进入“缓慢后退模式”
+                # if predicted_offset is None or abs(predicted_offset) > 0.9:
+                #     print("⚠️ 机器人偏离或找不到线，后退中...")
+                #     forSpd = -0.1  # **缓慢后退**
+                #     turnSpd = 0.2 * (-1 if counterDown % 2 == 0 else 1)  # **左右小幅调整**
+                
 
                 # 记录误差
                 if predicted_offset is not None:
