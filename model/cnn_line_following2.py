@@ -125,6 +125,19 @@ def train(train_dataloader, valid_dataloader):
             torch.save(model.state_dict(), f"ckpt/{val_acc:.4f}_line_follower_nn.pth")
 
 
+def image_preprocessor(image, device):
+    # image preprocessing
+    if not isinstance(image, Image.Image):
+        image = Image.fromarray(image)
+    image = image.convert("L")
+
+    transform = transforms.Compose([
+        transforms.Resize((64, 64)),
+        transforms.ToTensor(),
+    ])
+    return transform(image).unsqueeze(0).to(device)
+
+
 def main():
     train_path = "label/train.txt"
     valid_path = "label/valid.txt"

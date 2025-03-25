@@ -59,6 +59,11 @@ cnn = CNNLineFollower().to(device)
 cnn.load_state_dict(torch.load(cnn_path, map_location=device))
 cnn.eval()
 
+cnn2_path = "ckpt/0.8988_line_follower_cnn.pth"
+cnn2 = CNNLineFollower2().to(device)
+cnn2.load_state_dict(torch.load(cnn2_path, map_location=device))
+cnn2.eval()
+
 # --------------- 3. 加载 CNN分类模型 ---------------
 TURNSPD_LIST = []
 FORSPD_LIST = []
@@ -133,9 +138,11 @@ try:
                 debug_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
                 
                 image_cnn = load_cnn_data(binary, device)
+                image_cnn2 = load_cnn_data2(binary, device)
                 image_rnn = load_rnn_data(binary, device)
                 
                 pred_cnn = cnn(image_cnn).item()
+                pred_cnn2 = cnn2(image_cnn2).item()
                 if len(frame_buffer) < SEQ_LEN:
                     for _ in range(SEQ_LEN - len(frame_buffer)):
                         frame_buffer.append(image_rnn.clone())
@@ -144,7 +151,7 @@ try:
                 seq_tensor = seq_tensor.unsqueeze(0).to(device)
                 pred_rnn = rnn(seq_tensor).item()
 
-                print(f"预测偏移 CNN: {pred_cnn:.4f}, RNN: {pred_rnn:.4f}")
+                print(f"预测偏移 CNN: {pred_cnn:.4f}, CNN2:{pred_cnn2:.4f} RNN: {pred_rnn:.4f}")
 
                 cv2.putText(debug_image, f"Offset: {pred_rnn:.3f}", (10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
@@ -204,7 +211,7 @@ try:
                     forSpd = -0.1
                     turnSpd = 0.2 * (-1 if counterDown % 2 == 0 else 1)
                 else:
-                    forSpd = 0.15
+                    forSpd = 0.1
                     turnSpd = np.clip(predicted_offset * -0.5, -1, 1)
     
                 metrics.add_error(predicted_offset * 160)

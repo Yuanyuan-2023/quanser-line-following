@@ -19,6 +19,11 @@ cnn = CNNLineFollower().to(device)
 cnn.load_state_dict(torch.load(cnn_path, map_location=device))
 cnn.eval()
 
+cnn2_path = "ckpt/0.8988_line_follower_cnn.pth"
+cnn2 = CNNLineFollower2().to(device)
+cnn2.load_state_dict(torch.load(cnn2_path, map_location=device))
+cnn2.eval()
+
 cnn_classify_path = "ckpt/classify_road_5_cnn.pth"
 cnn_classify = CNNClassifyRoad().to(device)
 cnn_classify.load_state_dict(torch.load(cnn_classify_path, map_location=device))
@@ -30,11 +35,12 @@ image = cv2.imread("../datasets/qbot_binary_images/binary_image_0.png")
 
 image_classify = load_classify_data(image, device)
 image_cnn = load_cnn_data(image, device)
+image_cnn2 = load_cnn_data2(image, device)
 image_rnn = load_rnn_data(image, device)
 
 pred_classify = torch.argmax(cnn_classify(image_classify)[0]).item()
 pred_cnn = cnn(image_cnn).item()
-
+pred_cnn2 = cnn2(image_cnn2).item()
 
 
 if len(frame_buffer) < SEQ_LEN:
@@ -48,4 +54,4 @@ seq_tensor = seq_tensor.unsqueeze(0).to(device)
 pred_rnn = rnn(seq_tensor).item()
 
 
-print(pred_cnn, pred_classify, image_rnn.shape, pred_rnn)
+print(pred_cnn, pred_cnn2, pred_classify, pred_rnn)
