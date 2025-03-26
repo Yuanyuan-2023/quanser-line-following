@@ -41,30 +41,19 @@ def elapsed_time():
 
 timeHIL, prevTimeHIL = elapsed_time(), elapsed_time() - 0.017
 
-# --------------- 1. 加载 RNN 序列模型 ---------------
-# SEQ_LEN = 3
-# frame_buffer = deque(maxlen=SEQ_LEN)
-
 device = torch.device("cpu")
 
-# rnn_path = "ckpt/0.8797_line_follower_rnn.pth"
+# --------------- Load the RNN sequence model ---------------
+# SEQ_LEN = 3
+# frame_buffer = deque(maxlen=SEQ_LEN)
+# rnn = load_model(CNNRNNLineFollower, "ckpt/0.8797_line_follower_rnn.pth")
 
-# rnn = CNNRNNLineFollower().to(device)
-# rnn.load_state_dict(torch.load(rnn_path, map_location=device))
-# rnn.eval()
+# --------------- Load the CNN regression model ---------------
+cnn  = load_model(CNNLineFollower, "ckpt/qbot_line_follower_cnn.pth")
+cnn2 = load_model(CNNLineFollower2, "ckpt/0.8988_line_follower_cnn.pth")
+tspd = load_model(TurnSpeedCNN, "ckpt/best_turn_speed_model.pth")
 
-# --------------- 2. 加载 CNN 模型 ---------------
-cnn_path = "ckpt/qbot_line_follower_cnn.pth"
-cnn = CNNLineFollower().to(device)
-cnn.load_state_dict(torch.load(cnn_path, map_location=device))
-cnn.eval()
-
-# cnn2_path = "ckpt/0.8988_line_follower_cnn.pth"
-# cnn2 = CNNLineFollower2().to(device)
-# cnn2.load_state_dict(torch.load(cnn2_path, map_location=device))
-# cnn2.eval()
-
-# --------------- 3. 加载 CNN分类模型 ---------------
+# --------------- Load the CNN classification model ---------------
 SMOOTH_NUM = 5
 BACK_NUM = 20
 FDSPD_LIST = []
@@ -73,19 +62,20 @@ smooth_idx = 0
 back_idx = 0
 last_turn_time = 0
 cold_time = 180
-cnn_classify_path = "ckpt/classify_road_5_cnn.pth"
-cnn_classify = CNN5ClassifyRoad().to(device)
-cnn_classify.load_state_dict(torch.load(cnn_classify_path, map_location=device))
-cnn_classify.eval()
-CLASS_NAME_5 = ["Straight", "Turn","Cross", "T-shape","SmallBend"]
+cnn_3_cls = load_model(CNN3ClassifyRoad, "ckpt/0.9846_cls_cnn.pth")
+CLASS_NAME_3 = ["Blank", "Single Line", "Multiple Lines"]
 
-# Road classifier (3-class)
-cnn_classify_path2 = "ckpt/0.9846_cls_cnn.pth"
-cnn_classify2 = CNN3ClassifyRoad().to(device)
-cnn_classify2.load_state_dict(torch.load(cnn_classify_path2, map_location=device))
-cnn_classify2.eval()
-CLASS_NAME_3 = ["B", "S", "M"]
+# cnn_5_cls = load_model(CNN5ClassifyRoad, "ckpt/classify_road_5_cnn.pth")
+# CLASS_NAME_5 = ["Straight", "Turn", "Cross", "T-Junction", "Curve"]
 
+cnn_6_cls = load_model(CNN6ClassifyRoad, "ckpt/qbot_line_follower_cnn_6_classes.pth")
+CLASS_NAME_6 = ["Straight", "Turn", "Cross", "T-Junction", "Curve", "Black"]
+
+# --------------- Load the ResNet model ---------------
+resnet_col  = load_resnet18("ckpt/best_resnet_model_mps.pth", output_dim=1)
+
+
+# ----------------------- Start -------------------------
 lineFollow = False
 prev_k7 = False
 
@@ -178,18 +168,18 @@ try:
                 
                 # print(f"预测偏移: {predicted_offset:.4f} CNN: {pred_cnn:.4f}, CNN2:{pred_cnn2:.4f} RNN: {pred_rnn:.4f}")
 
-                image_classify = load_classify_data(binary, device)
-                pred_classify_cnn = torch.argmax(cnn_classify(image_classify)[0]).item()
-                road_class_5 = CLASS_NAME_5[pred_classify_cnn]
+                image_6_cls = load_6_cls_data(binary, device)
+                pred_6_cls = torch.argmax(cnn_6_cls(image_6_cls)[0]).item()
+                road_6_class = CLASS_NAME_6[pred_6_cls]
 
-                image_classify2 = load_classify_data2(binary, device)
-                pred_classify_cnn2 = torch.argmax(cnn_classify2(image_classify2)[0]).item()
-                road_class_3 = CLASS_NAME_3[pred_classify_cnn2]
+                image_3_cls = load_3_cls_data(binary, device)
+                pred_3_cls = torch.argmax(cnn_3_cls(image_3_cls)[0]).item()
+                road_3_class = CLASS_NAME_3[pred_3_cls]
 
-                print(f"路口 {road_class_5}, 线段 {road_class_3} col {col}")
+                print(f"路口 {road_6_class}, 线段 {road_3_class} col {col}")
 
                 debug_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-                cv2.putText(debug_image, f"Col: {col} Offset: {predicted_offset:.3f}, {road_class_5}, {road_class_3} ", (10, 25),
+                cv2.putText(debug_image, f"Col: {col} Offset: {predicted_offset:.3f}, {road_6_class}, {road_3_class} ", (10, 25),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
                 cv2.imshow("Line Following", debug_image)
                 cv2.waitKey(1)
@@ -299,12 +289,12 @@ try:
                         turnSpd = TURNSPD_LIST[0]
                         TURNSPD_LIST.pop(0)
                 # 空白后退
-                elif road_class_3 in ["B"]:
-                    forSpd = -0.02
+                elif road_3_class in ["B"] or road_6_class in ["Black"]:
+                    forSpd = -0.04
                     turnSpd = 0
 
                 # CLassify "十字", "T型",
-                elif road_class_5 in ["T-shape", "Cross"] and road_class_3 in ["M"] and time.time() - last_turn_time > cold_time and lidar_get==2:
+                elif road_6_class in ["T-shape", "Cross"] and road_3_class in ["M"] and time.time() - last_turn_time > cold_time and lidar_get==2:
                     if smooth_idx < SMOOTH_NUM:
                         smooth_idx += 1
                         forSpd = 0.01  # 正常前进速度
@@ -321,7 +311,7 @@ try:
                         forSpd = -0.02
                         turnSpd = 0
                         last_turn_time = time.time()
-                elif road_class_5 in ["T-shape", "Cross"] and road_class_3 in ["M"] and lidar_flag:
+                elif road_6_class in ["T-shape", "Cross"] and road_3_class in ["M"] and lidar_flag:
                     if front < 1:
                         if lidar_get and left_dist > right_dist:
                             print(f"转左弯\n\n")

@@ -4,11 +4,11 @@ import torch
 import torchvision.models as models
 import torch.nn as nn
 
-def load_resnet18(path, class_num=0, device="cpu"):
+def load_resnet18(path, output_dim=None, device="cpu"):
     model_state_dict = torch.load(path, map_location=device)
     model_state_dict = remove_prefix(model_state_dict, prefix="resnet.")
     model = models.resnet18(weights=None)
-    if class_num:   model.fc = nn.Linear(512, class_num)
+    if output_dim:   model.fc = nn.Linear(512, output_dim)
     model.load_state_dict(model_state_dict)
     model.eval()
 
