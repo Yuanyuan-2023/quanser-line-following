@@ -74,14 +74,14 @@ back_idx = 0
 last_turn_time = 0
 cold_time = 180
 cnn_classify_path = "ckpt/classify_road_5_cnn.pth"
-cnn_classify = CNNClassifyRoad().to(device)
+cnn_classify = CNN5ClassifyRoad().to(device)
 cnn_classify.load_state_dict(torch.load(cnn_classify_path, map_location=device))
 cnn_classify.eval()
 CLASS_NAME_5 = ["Straight", "Turn","Cross", "T-shape","SmallBend"]
 
 # Road classifier (3-class)
 cnn_classify_path2 = "ckpt/0.9846_cls_cnn.pth"
-cnn_classify2 = CNNClassifyRoad2().to(device)
+cnn_classify2 = CNN3ClassifyRoad().to(device)
 cnn_classify2.load_state_dict(torch.load(cnn_classify_path2, map_location=device))
 cnn_classify2.eval()
 CLASS_NAME_3 = ["B", "S", "M"]
