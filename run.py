@@ -162,7 +162,7 @@ try:
                 
                 image_cnn = load_cnn_data(binary, device)
                 # image_cnn2 = load_cnn_data2(binary, device)
-                image_rnn = load_rnn_data(binary, device)
+                # image_rnn = load_rnn_data(binary, device)
                 
                 pred_cnn = cnn(image_cnn).item()
                 # pred_cnn2 = cnn2(image_cnn2).item()
@@ -283,11 +283,11 @@ try:
                     #     print("Turn completed, returning to line-following mode")
                     #--------------------------------------------------------
                 
-                if lidar_get==2 and col is not None:
-                    metrics.add_error(col * 160)
-                    commands = np.array([forSpd_2, turnSpd_2], dtype=np.float64)
-                    print(f"[自动模式] PID 计算速度: {commands}")
-                    continue
+                # if lidar_get==2 and col is not None:
+                #     metrics.add_error(col * 160)
+                #     commands = np.array([forSpd_2, turnSpd_2], dtype=np.float64)
+                #     print(f"[自动模式] PID 计算速度: {commands}")
+                #     continue
                 
                 if TURNSPD_LIST:
                     if back_idx < BACK_NUM:
@@ -347,8 +347,14 @@ try:
                         else:
                             # inner circle
                             print(f"inner circle, {right_dist:.2f},{left_dist:.2f}")
-                            forSpd = 0.02  # 正常前进速度
-                            turnSpd = np.clip(predicted_offset * -0.5, -1, 1)  # 限制转向速度范围
+                            if lidar_get==2 and col is not None:
+                                metrics.add_error(col * 160)
+                                commands = np.array([forSpd_2, turnSpd_2], dtype=np.float64)
+                                print(f"[自动模式] PID 计算速度: {commands}")
+                                continue
+                            else:
+                                forSpd = 0.02  # 正常前进速度
+                                turnSpd = np.clip(predicted_offset * -0.5, -1, 1)  # 限制转向速度范围
                     else:
                         print(f"no circle")
                         forSpd = 0.01  # 正常前进速度
